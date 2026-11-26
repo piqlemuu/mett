@@ -73,10 +73,12 @@ function design(id){const cfg=settings(id),draft=structuredClone(cfg.fields);
  for(const [t,fn] of [['↑',()=>reorder(draft,i,-1)],['↓',()=>reorder(draft,i,1)],['삭제',()=>draft.splice(i,1)]])button(e,t,()=>{fn();show()})});
  button(d,'항목 추가',()=>{draft.push({key:'field'+(draft.length+1),label:'새 항목',type:'text',initial:'',choices:[],required:false});show()});
  button(d,'양식 저장',()=>{if(draft.some(f=>!f.label.trim()||!/^\w+$/.test(f.key)||['constructor','__proto__','prototype'].includes(f.key)||f.type==='select'&&!f.choices.length)||new Set(draft.map(f=>f.key)).size!==draft.length)return alert('항목 이름, 고유 영문 변수명과 선택지를 확인하세요.');cfg.fields=draft;persist();runMode(id)})}show()}
-runMode=function(id,previous='',onResult=null,initialBrand=''){
+runMode=function(id,previous='',onResult=null,initialBrand='',writing=null){
  const s=find(id),cfg=settings(id),d=box(s.title+' · 실행'),inputs=new Map();
  if(!onResult)button(d,'입력 양식 편집',()=>design(id));
  for(const f of cfg.fields){const el=field(d,f.label+(f.required?' *':''),f.type,f.type==='checkbox'?String(f.initial)==='true':f.initial,f.choices);if(f.type==='select'&&!el.value)el.selectedIndex=0;el.required=f.required;inputs.set(f.key,el)}
+ let generatedMode;
+ if(writing)paragraph(d,'문체 · '+writing.name);
  const values=()=>Object.fromEntries([...inputs].map(([k,e])=>[k,e.type==='checkbox'?e.checked:e.value]));
  const presets=field(d,'입력 프리셋','select','',[['','선택'],...cfg.presets.map((p,i)=>[String(i),p.name])]);
  presets.onchange=()=>{const p=cfg.presets[presets.value];if(p)for(const [k,e] of inputs){if(e.type==='checkbox')e.checked=!!p.values[k];else e.value=p.values[k]??''}};
@@ -89,17 +91,18 @@ runMode=function(id,previous='',onResult=null,initialBrand=''){
  const lines=cfg.fields.filter(f=>v[f.key]!==''&&v[f.key]!==false).map(f=>f.label+': '+v[f.key]);
  if(lines.length)custom+='\n\n[이번 작업 입력]\n'+lines.join('\n');if(prev.value)custom+='\n\n[이전 단계 결과]\n'+prev.value;
  custom+=brandText(brand.value);if(s.id==='MV31-EDITOR-FILTER')custom+='\n작업 평가 기준 · '+JSON.stringify(db.weights||defaultWeights);for(const [source,el] of refs)if(el.checked)custom+='\n\n['+source.title+']\n'+source.prompt;
+ const block=writingBlock(writing);if(block)custom+='\n\n'+block;generatedMode=mode;
  out.value=mode==='Original'?s.prompt:mode==='Custom'?custom:'다음 작업의 목적과 제약을 유지하면서 재사용 가능한 프롬프트로 재구성해 주세요. 개선된 프롬프트만 출력해 주세요.\n\n'+custom}
  for(const m of ['Original','Custom','AI Refine'])button(d,m,()=>generate(m));
  button(d,'복사 및 사용 기록',()=>{if(out.value){copy(out.value);s.uses=(Number(s.uses)||0)+1;s.used_at=now();persist()}});
  const result=field(d,'결과물 · ChatGPT 응답 또는 작업 메모','long');
- button(d,'실행 기록 저장',()=>{if(!out.value)return alert('실행 방식을 선택하세요.');const record={id:crypto.randomUUID(),skill:id,date:now(),original:s.prompt,brand:brand.value,values:values(),prompt:out.value,result:result.value};(db.runs??=[]).push(record);if(onResult)onResult(record);persist();dialog.close();render()})
+ button(d,'실행 기록 저장',()=>{if(!out.value)return alert('실행 방식을 선택하세요.');const record={id:crypto.randomUUID(),skill:id,date:now(),original:s.prompt,brand:brand.value,...(writing?{writing:{...writing,applied:generatedMode!=='Original'}}:{}),values:values(),prompt:out.value,result:result.value};(db.runs??=[]).push(record);if(onResult)onResult(record);persist();dialog.close();render()})
 };
 function promote(promptText,parent){if(!promptText.trim())return alert('결과를 입력하세요.');const title=prompt('새 스킬 이름')?.trim();if(!title)return;db.skills.push({id:'USER-'+crypto.randomUUID(),title,prompt:promptText,parent_id:parent||null,category:'CUSTOM',status:'USER',version:'1.0',tags:[],created_at:now()});persist();dialog.close();go('Library')}
 extras.set('Forge',m=>{const e=panel(m,'조합 프리셋');button(e,'현재 조합 저장',()=>{if(!mix.length)return;const name=prompt('조합 이름')?.trim();if(name){(db.combinations??=[]).push({name,ids:mix.slice()});persist();render()}});
  for(const p of db.combinations||[])button(e,p.name,()=>{mix=p.ids.filter(id=>find(id)&&!find(id).deleted);persist();render()});
  button(e,'편집한 조합을 새 스킬로 등록',()=>promote($('#combined').value))});
-function showRecord(r){const d=box('실행 기록');for(const [title,value] of [['원본',r.original],['입력값',JSON.stringify(r.values,null,2)],['완성 프롬프트',r.prompt],['결과물',r.result]])field(d,title,'long',value).readOnly=true;
+function showRecord(r){const d=box('실행 기록');if(r.writing){paragraph(d,'선택 문체 · '+r.writing.name+(r.writing.preset?' v'+r.writing.preset.version:'')+(r.writing.applied===false?' (Original · 원문 복사)':''));for(const [k,v] of Object.entries(r.writing.overrides||{}))paragraph(d,k+' · '+v)}for(const [title,value] of [['원본',r.original],['입력값',JSON.stringify(r.values,null,2)],['완성 프롬프트',r.prompt],['결과물',r.result]])field(d,title,'long',value).readOnly=true;
  button(d,'결과를 새 스킬로 등록',()=>promote(r.result,r.skill))}
 views.set('실행 기록',m=>{const p=panel(m,'실행 기록');for(const r of [...db.runs||[]].reverse())button(p,(find(r.skill)?.title||r.skill)+' · '+r.date,()=>showRecord(r))});
 views.set('Workflow',m=>{const p=panel(m,'Workflow'),title=field(p,'워크플로우 이름');
@@ -208,9 +211,65 @@ views.set('편집 평가',m=>{editor(m);for(const v of [...db.evaluations||[]].r
 function cloneFlow(f,name,template=false,initial=''){const v=structuredClone(f);Object.assign(v,{id:crypto.randomUUID(),name,template,initial,steps:v.steps.map(x=>({...x,run:null}))});(db.flows??=[]).push(v);return v}
 function rowResult(x){const r=records().find(r=>r.id===x?.run);return r?.result||r?.prompt||''}
 function inputText(f){return Object.entries(f.inputs||{}).map(([k,v])=>k+' · '+v).join('\n')}
-function manualStep(f,x,prev){const d=box(x.label||'단계 기록');paragraph(d,x.match?'원본 스킬 등록 대기 · '+x.match:'워크플로우 작업 지시');const text=[x.instruction,inputText(f),brandText(f.brand),prev].filter(Boolean).join('\n\n');field(d,'실행 요청문','long',text).readOnly=true;button(d,'요청문 복사',()=>copy(text));const output=field(d,'단계 결과','long');button(d,'결과 저장',()=>{if(!output.value.trim())return;const r={id:crypto.randomUUID(),date:now(),skill:x.skill,original:x.instruction||'',values:{...f.inputs},prompt:text,result:output.value};(db.runs??=[]).push(r);x.run=r.id;dialog.close();refresh()})}
+const curatorVersions = Object.freeze({
+ '1.0': Object.freeze({
+  id:'FRIENDLY_CURATOR_V1', version:'1.0', name:'친근한 생활정보 큐레이터형', english:'FRIENDLY CURATOR',
+  description:'독자가 일상에서 바로 쓸 정보를 미리 찾아 정리하는 해요체예요.',
+  example:'퇴근길에 편의점 들르세요? 오늘 살 수 있는 상품과 예약이 필요한 상품을 나눠 봤어요.',
+  rules:Object.freeze([
+   '독자에게 필요한 정보를 미리 찾아 정리하는 친근한 화자로 쓴다.',
+   '자연스러운 해요체를 사용한다.',
+   '독자의 일상적인 상황이나 질문으로 시작한다.',
+   '모바일에서 읽기 좋게 짧은 문장과 의미 단위 줄바꿈을 사용한다.',
+   '상품명, 가격, 출시일, 행사 기간, 구매 조건을 구분한다.',
+   '여러 상품을 소개할 때 마지막에 체크리스트를 제공한다.',
+   '수익 링크는 본문과 연결되는 생활 상황 속에 자연스럽게 배치한다. 제공된 링크만 사용한다.',
+   '독자가 경험이나 선택을 이야기할 수 있는 질문으로 마무리한다.',
+   '직접 경험하지 않은 구매 후기, 맛 평가, 사용 경험을 창작하지 않는다.',
+   '과장 광고, 지나친 친근함, 억지 유행어, 음슴체를 피한다.',
+   '같은 도입과 마무리 문장을 반복하지 않는다. 예문은 매번 새로 쓴다.',
+   '바이럴 맥락 v3의 콘텐츠 역할과 관심 패턴을 유지하고 표현 방식만 바꾼다.'
+  ])
+ })
+});
+const writingOptions={
+ breaks:['줄바꿈 밀도','문단 중심','의미 단위','한 문장마다'],
+ emoji:['이모지 사용량','사용 안 함','글 전체 1~2개','항목마다 최대 1개'],
+ list:['체크리스트','삽입','여러 상품일 때만 삽입','생략'],
+ links:['수익 링크','제공한 링크만 상황에 맞게 배치','생략']
+};
+function writingDecision(f,step){
+ const prefs=f.writingPrefs||{}, mode=prefs.mode||'기존 설정', version=prefs.version||'1.0',profile=curatorVersions[version];
+ const context=[f.name,...Object.values(f.inputs||{}),...(step?[step.label,matchStep(step)?.title]:f.steps.map(x=>x.label||matchStep(x)?.title))].join(' ');
+ const friendly=!!profile&&(mode==='FRIENDLY_CURATOR_V1'||mode==='자동 선정'&&/생활정보|장보기|쇼핑|상품|편의점|할인|구매|큐레이션|커머스|체크리스트|shopping|commerce/i.test(context));
+ const overrides=Object.fromEntries(Object.entries(writingOptions).filter(([k,options])=>options.slice(1).includes(prefs[k])).map(([k,[label]])=>[label,prefs[k]]));
+ const explanation=mode==='자동 선정'?(friendly?'상품·구매·생활정보 관련 단서가 있어 선택':'생활정보 단서가 없어 기존 설정 유지'):mode;
+ return {mode,name:friendly?profile.name:'기존 문체·화자',explanation,preset:friendly?structuredClone(profile):null,overrides}
+}
+function writingBlock(w){
+ if(!w)return '';const options=Object.entries(w.overrides);
+ if(!w.preset&&!options.length)return '';
+ const lines=['[독자에게 발행할 문안의 표현 규칙]','조사·검증 기준과 중간 산출물의 형식은 유지한다.'];
+ if(w.preset)lines.push(w.name+' · '+w.preset.english+' v'+w.preset.version,...w.preset.rules);
+ if(options.length)lines.push('아래 개별 선택은 해당 항목의 기본 문체 규칙보다 우선한다.',...options.map(([k,v])=>k+' · '+v));
+ return lines.join('\n')
+}
+function writingPanel(parent,f){
+ const details=document.createElement('details'),summary=document.createElement('summary');details.append(summary);parent.append(details);
+ const prefs=f.writingPrefs||{},choices=[['기존 설정','기존 문체·화자 유지'],['자동 선정','자동 선정'],['FRIENDLY_CURATOR_V1','친근한 생활정보 큐레이터형 · FRIENDLY CURATOR']];
+ const mode=field(details,'문체 선택','select',prefs.mode||'기존 설정',choices),preview=document.createElement('p');details.append(preview);
+ const fields=Object.entries(writingOptions).map(([key,[label,...opts]])=>[key,field(details,label,'select',prefs[key]||'기본값',['기본값',...opts])]);
+ function display(){const w=writingDecision(f);summary.textContent='문체 및 출력 형식 · '+w.name;
+ const b=brands().find(v=>v.id===f.brand);
+ preview.textContent=[w.explanation,w.preset?w.preset.description:(b?.rules?.['문체와 금지 표현']||'현재 스킬과 브랜드의 문체·화자를 따릅니다.'),'예문 · '+(w.preset?w.preset.example:'이번 주 출시 상품과 행사 조건을 정리했습니다.')].join('\n');preview.style.whiteSpace='pre-line'}
+ function save(){f.writingPrefs={...prefs,mode:mode.value,version:'1.0',...Object.fromEntries(fields.map(([k,el])=>[k,el.value]))};if(persist())display()}
+ for(const el of [mode,...fields.map(([,el])=>el)])el.onchange=save;
+ display();
+}
+
+function manualStep(f,x,prev){const d=box(x.label||'단계 기록');paragraph(d,x.match?'원본 스킬 등록 대기 · '+x.match:'워크플로우 작업 지시');const writing=writingDecision(f,x);paragraph(d,'문체 · '+writing.name);const text=[x.instruction,inputText(f),brandText(f.brand),prev,writingBlock(writing)].filter(Boolean).join('\n\n');field(d,'실행 요청문','long',text).readOnly=true;button(d,'요청문 복사',()=>copy(text));const output=field(d,'단계 결과','long');button(d,'결과 저장',()=>{if(!output.value.trim())return;const r={id:crypto.randomUUID(),date:now(),skill:x.skill,original:x.instruction||'',writing:{...writing,applied:true},values:{...f.inputs},prompt:text,result:output.value};(db.runs??=[]).push(r);x.run=r.id;dialog.close();refresh()})}
 function runStep(f,x,i){const prev=i?rowResult(f.steps[i-1]):f.initial||'',s=matchStep(x);if(!s)return manualStep(f,x,prev);
- runMode(s.id,[inputText(f),x.instruction,prev].filter(Boolean).join('\n\n'),r=>x.run=r.id,f.brand)}
+ runMode(s.id,[inputText(f),x.instruction,prev].filter(Boolean).join('\n\n'),r=>x.run=r.id,f.brand,writingDecision(f,x))}
 const workflowChoices = new Map([
  ['조사 대상 플랫폼', ['뉴스', '공식 발표', '커뮤니티', 'SNS', '검색', '공식 상품 페이지', '네이버 데이터랩', '유튜브', '틱톡', '소비자 조사 보고서']],
  ['발행 채널', ['네이버 클립', '네이버 블로그', '유튜브 쇼츠', '인스타그램', '틱톡', '스레드', '페이스북 릴스', 'X', '네이버 카페', '웹사이트']],
@@ -243,6 +302,7 @@ function workflowInput(parent, key, savedValue) {
 function flowTools(e,f){
  if(f.id)paragraph(e,f.id+(f.template?' · 템플릿':''));
  if(f.template){named(e,'템플릿으로 작업 시작',n=>{cloneFlow(f,n);refresh()});return}
+ writingPanel(e,f);
  const brand=brandPick(e,f.brand);brand.onchange=()=>{f.brand=brand.value;refresh()};
  if(f.inputs){const form=panel(e,'작업 입력'),fields=Object.entries(f.inputs).map(([k,v])=>[k,workflowInput(form,k,v)]);button(form,'작업 입력 저장',()=>{f.inputs=Object.fromEntries(fields.map(([k,el])=>[k,el.value]));refresh()})}
  named(e,'템플릿 저장',n=>{cloneFlow(f,n,true);refresh()});
