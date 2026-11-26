@@ -74,6 +74,7 @@ function design(id){const cfg=settings(id),draft=structuredClone(cfg.fields);
  button(d,'항목 추가',()=>{draft.push({key:'field'+(draft.length+1),label:'새 항목',type:'text',initial:'',choices:[],required:false});show()});
  button(d,'양식 저장',()=>{if(draft.some(f=>!f.label.trim()||!/^\w+$/.test(f.key)||['constructor','__proto__','prototype'].includes(f.key)||f.type==='select'&&!f.choices.length)||new Set(draft.map(f=>f.key)).size!==draft.length)return alert('항목 이름, 고유 영문 변수명과 선택지를 확인하세요.');cfg.fields=draft;persist();runMode(id)})}show()}
 runMode=function(id,previous='',onResult=null,initialBrand='',writing=null){
+ if(id==='VIRAL_CONTEXT_CARD_V31'&&!onResult)return vStudio();
  const s=find(id),cfg=settings(id),d=box(s.title+' · 실행'),inputs=new Map();
  if(!onResult)button(d,'입력 양식 편집',()=>design(id));
  for(const f of cfg.fields){const el=field(d,f.label+(f.required?' *':''),f.type,f.type==='checkbox'?String(f.initial)==='true':f.initial,f.choices);if(f.type==='select'&&!el.value)el.selectedIndex=0;el.required=f.required;inputs.set(f.key,el)}
@@ -102,7 +103,7 @@ function promote(promptText,parent){if(!promptText.trim())return alert('결과�
 extras.set('Forge',m=>{const e=panel(m,'조합 프리셋');button(e,'현재 조합 저장',()=>{if(!mix.length)return;const name=prompt('조합 이름')?.trim();if(name){(db.combinations??=[]).push({name,ids:mix.slice()});persist();render()}});
  for(const p of db.combinations||[])button(e,p.name,()=>{mix=p.ids.filter(id=>find(id)&&!find(id).deleted);persist();render()});
  button(e,'편집한 조합을 새 스킬로 등록',()=>promote($('#combined').value))});
-function showRecord(r){const d=box('실행 기록');if(r.writing){paragraph(d,'선택 문체 · '+r.writing.name+(r.writing.preset?' v'+r.writing.preset.version:'')+(r.writing.applied===false?' (Original · 원문 복사)':''));for(const [k,v] of Object.entries(r.writing.overrides||{}))paragraph(d,k+' · '+v)}for(const [title,value] of [['원본',r.original],['입력값',JSON.stringify(r.values,null,2)],['완성 프롬프트',r.prompt],['결과물',r.result]])field(d,title,'long',value).readOnly=true;
+function showRecord(r){const d=box('실행 기록');vSummary(d,r);if(r.writing){paragraph(d,'선택 문체 · '+r.writing.name+(r.writing.preset?' v'+r.writing.preset.version:'')+(r.writing.applied===false?' (Original · 원문 복사)':''));for(const [k,v] of Object.entries(r.writing.overrides||{}))paragraph(d,k+' · '+v)}for(const [title,value] of [['원본',r.original],['입력값',JSON.stringify(r.values,null,2)],['완성 프롬프트',r.prompt],['결과물',r.result]])field(d,title,'long',value).readOnly=true;
  button(d,'결과를 새 스킬로 등록',()=>promote(r.result,r.skill))}
 views.set('실행 기록',m=>{const p=panel(m,'실행 기록');for(const r of [...db.runs||[]].reverse())button(p,(find(r.skill)?.title||r.skill)+' · '+r.date,()=>showRecord(r))});
 views.set('Workflow',m=>{const p=panel(m,'Workflow'),title=field(p,'워크플로우 이름');
@@ -165,6 +166,7 @@ function safeID(s){return id(s)&&!['constructor','prototype','__proto__'].includ
 function assert31(ok,msg){if(!ok)throw Error(msg)}
 function stringMap(v){return object(v)&&Object.values(v).every(str)}
 function check31(d){
+ for(const r of d.runs||[])if(r.vcc!==undefined)assert31(object(r.vcc)&&str(r.vcc.mode)&&str(r.vcc.topic)&&object(r.vcc.fields)&&Array.isArray(r.vcc.warnings)&&(!r.vcc.learning||object(r.vcc.learning)),'맥락 카드 기록 형식 오류');
  const unique=list=>{const ids=list.map(v=>v.id).filter(v=>v!==undefined);return ids.every(safeID)&&new Set(ids).size===ids.length};
  assert31(unique(d.flows||[])&&unique(d.runs||[]),'ID 충돌 또는 지원하지 않는 ID');
  assert31(!d.brands||Array.isArray(d.brands)&&unique(d.brands)&&d.brands.every(b=>safeID(b.id)&&str(b.name)&&stringMap(b.rules)),'브랜드 형식 오류');
@@ -186,14 +188,15 @@ function mergePackage(pack){
  const same=target.find(t=>t.id===v.id);
  if(same){const clean=t=>JSON.stringify(t,(k,val)=>['uses','used_at','created_at','updated_at'].includes(k)?undefined:val);
  assert31(clean(same)===clean(v),'기존 ID와 내용 충돌 · '+v.id);skips.push(v.id);continue}
- if(prop==='skills'){const matches=target.filter(t=>!t.deleted&&(normalize(t.title)===normalize(v.title)||t.prompt===v.prompt));assert31(matches.length<=1,'여러 기존 스킬과 일치 · '+v.title);const dup=matches[0];if(dup){(draft.skillAliases??={})[v.id]=dup.id;aliases.push(v.title+' → '+dup.title);continue}}
+ if(prop==='skills'&&!/^VIRAL_CONTEXT_CARD_V31(?:_M0[1-7])?$/.test(v.id)){const matches=target.filter(t=>!t.deleted&&(normalize(t.title)===normalize(v.title)||t.prompt===v.prompt));assert31(matches.length<=1,'여러 기존 스킬과 일치 · '+v.title);const dup=matches[0];if(dup){(draft.skillAliases??={})[v.id]=dup.id;aliases.push(v.title+' → '+dup.title);continue}}
  target.push(v)}
  validate({db:draft});check31(draft);const count=target.length-(db[prop]||[]).length;
  if(!count&&JSON.stringify(db.skillAliases)===JSON.stringify(draft.skillAliases))return '추가 0개 · 동일 ID '+skips.length+'개 · 기존 스킬 '+aliases.join(', ');
+ if(pack.items.some(v=>v.id==='VIRAL_CONTEXT_CARD_V31'||v.id==='WF-VIRAL-CONTEXT-V31')&&!localStorage.getItem('mett-before-vcc31'))localStorage.setItem('mett-before-vcc31',JSON.stringify(state()));
  const old=db;db=draft;if(!persist()){db=old;throw Error('저장 실패')}
  return '추가 '+count+'개 · 동일 ID '+skips.length+'개'+(aliases.length?' · 기존 스킬 '+aliases.join(', '):'')
 }
-extras.set('Vault',m=>{const p=panel(m,'확장 패키지 추가');paragraph(p,'skills.json, workflows.json, brands.json을 각각 선택하세요. 기존 데이터에 추가하며 ID 충돌이 있으면 해당 파일 전체를 취소합니다.');const input=field(p,'패키지 JSON','file');input.accept='.json';const msg=document.createElement('output');p.append(msg);input.onchange=async()=>{try{msg.textContent=mergePackage(JSON.parse(await input.files[0].text()))}catch(e){msg.textContent=e.message}input.value=''}});
+extras.set('Vault',m=>{const p=panel(m,'확장 패키지 추가');if(localStorage.getItem('mett-before-vcc31'))button(p,'맥락 카드 설치 전 백업 다운로드',()=>saveJSON(localStorage.getItem('mett-before-vcc31'),'mett_before_vcc31.json'));paragraph(p,'skills.json, workflows.json, brands.json을 각각 선택하세요. 기존 데이터에 추가하며 ID 충돌이 있으면 해당 파일 전체를 취소합니다.');const input=field(p,'패키지 JSON','file');input.accept='.json';const msg=document.createElement('output');p.append(msg);input.onchange=async()=>{try{msg.textContent=mergePackage(JSON.parse(await input.files[0].text()))}catch(e){msg.textContent=e.message}input.value=''}});
 function rating(n){return n>=80?'우선 제작':n>=65?'제작 후보':n>=50?'추가 조사':'보류'}
 function editor(m,subject='',done=null){
  const p=panel(m,'EDITOR FILTER'),topic=field(p,'평가 소재','text',subject),weights=db.weights||defaultWeights;
@@ -268,7 +271,7 @@ function writingPanel(parent,f){
 }
 
 function manualStep(f,x,prev){const d=box(x.label||'단계 기록');paragraph(d,x.match?'원본 스킬 등록 대기 · '+x.match:'워크플로우 작업 지시');const writing=writingDecision(f,x);paragraph(d,'문체 · '+writing.name);const text=[x.instruction,inputText(f),brandText(f.brand),prev,writingBlock(writing)].filter(Boolean).join('\n\n');field(d,'실행 요청문','long',text).readOnly=true;button(d,'요청문 복사',()=>copy(text));const output=field(d,'단계 결과','long');button(d,'결과 저장',()=>{if(!output.value.trim())return;const r={id:crypto.randomUUID(),date:now(),skill:x.skill,original:x.instruction||'',writing:{...writing,applied:true},values:{...f.inputs},prompt:text,result:output.value};(db.runs??=[]).push(r);x.run=r.id;dialog.close();refresh()})}
-function runStep(f,x,i){const prev=i?rowResult(f.steps[i-1]):f.initial||'',s=matchStep(x);if(!s)return manualStep(f,x,prev);
+function runStep(f,x,i){const prev=i?rowResult(f.steps[i-1]):f.initial||'',s=matchStep(x);if(s?.id===vccId)return vStudio(f,x,prev);if(!s)return manualStep(f,x,prev);
  runMode(s.id,[inputText(f),x.instruction,prev].filter(Boolean).join('\n\n'),r=>x.run=r.id,f.brand,writingDecision(f,x))}
 const workflowChoices = new Map([
  ['조사 대상 플랫폼', ['뉴스', '공식 발표', '커뮤니티', 'SNS', '검색', '공식 상품 페이지', '네이버 데이터랩', '유튜브', '틱톡', '소비자 조사 보고서']],
@@ -355,6 +358,121 @@ button:focus-visible{outline-color:var(--forest)}input[type=checkbox]{width:24px
 label textarea{display:block}#detail input,#detail textarea,#detail select{font-size:16px}
 @media(max-width:370px){nav{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `;document.head.append(theme);
+
+const vccId='VIRAL_CONTEXT_CARD_V31';
+const vModes={AUTO:'전체 제작',SCAN:'소재 발굴·평가',QUICK:'핵심 카드·제목·원고',DEEP:'전체 분석·시각·조합',COMMERCE:'가격·조건·구매 판단',COMPARE:'독립된 두 안 비교',AUDIT:'기존 콘텐츠 검수',LEARN:'성과 분석·다음 실험'};
+const vGoals=['유입','조회 유지','저장','공유','댓글','상품 탐색','구매'];
+const vRoles=['발견','정보','비교','경험','실용','공감','해석','큐레이션'];
+const vMetric=['클릭률','완주율','저장률','공유율','댓글률','상품 링크 클릭률','전환율'];
+const vDims='시의성 관심근거 독자관련성 차별성 실질가치 시각전달력 행동연결성 제작효율'.split(' ');
+function coded(prefix,labels,start=1){return labels.split('|').map((label,i)=>[prefix+(prefix==='C'?String(i+start):String(i+start).padStart(2,'0')),label])}
+const vM=coded('M','발견 욕구|경제적 이득|선택 불안 해소|시간 절약|자기 관련성|사회적 관심|취향 표현|변화 감지|감정적 보상|실생활 문제 해결');
+const vH=coded('H','예상 밖 기능·디테일|과거와 현재의 연결|실제 독자 언어|생활에 필요한 조건|즉각적인 혜택 질문|취향·사용 장면|의견이 갈리는 선택|시리즈 예고|비주얼 밀도|일상 속 불편 발견|가격과 가치의 간극|선택 기준의 재발견|작지만 중요한 변화|탐색 과정의 압축|특정 상황의 자기 투영');
+const vV=coded('V','단일 대상 집중|비교형 그리드|디테일 확대|생활 장면|직접 비교|근거 중심');
+const vC=coded('C','정보·재미 (링크 제외)|발견|관심|구매 고민|구매 의사',0);
+const vStates=['HYPOTHESIS','TESTING','OBSERVED','SUPPORTED','REVISED','RETIRED'];
+function group(p,title){const e=document.createElement('details'),h=document.createElement('summary');h.textContent=title;e.append(h);p.append(e);return e}
+function scoreBand(n){return n>=33?'우선 제작':n>=27?'제작 후보':n>=21?'관점 재설계':'보류·제외 검토'}
+function vRange(scores){const low=scores.reduce((s,x)=>s+(x??0),0),high=low+5*scores.filter(x=>x===null).length;
+ return {low,high,decision:scoreBand(low)===scoreBand(high)?scoreBand(low):'잠정 판단 · '+scoreBand(low)+' ~ '+scoreBand(high)}}
+function vStudio(f=null,step=null,previous=''){
+ const master=find(vccId);if(!master||master.deleted)return alert('백업 · Vault에서 viral-skills.json을 먼저 추가하세요.');
+ const d=box(step?.label||'바이럴 맥락 v3.1'),ui=new Map(),groups={};let snapshot=null;
+ const form=document.createElement('form');form.onsubmit=e=>e.preventDefault();d.append(form);
+ const mode=field(form,'실행 모드','select',step?.vccMode||'AUTO',Object.entries(vModes).map(([k,t])=>[k,k+' · '+t]));
+ function input(p,key,type='text',val='',choices=[]){const el=field(p,key,type,val,choices);ui.set(key,el);return el}
+ function pick(p,key,opts,optional=false){return input(p,key,'select','',[['',optional?'사용 안 함':'자동 추천'],...opts.map(x=>Array.isArray(x)?[x[0],x.join(' · ')]:[x,x])])}
+ const subject=input(form,'소재','text',f?.inputs?.['소재']||f?.name||'');subject.required=true;
+ const channel=input(form,'플랫폼','text',f?.inputs?.['발행 채널']||'');channel.placeholder='비우면 추천';
+ const brand=field(form,'작업 브랜드','select',f?.brand||'',[['','자동 추천'],['-','미적용'],...brands().map(b=>[b.id,b.name])]);const goal=pick(form,'목표',vGoals),role=pick(form,'역할',vRoles);
+ const audience=input(form,'대상 독자');const context=input(form,'이전 결과·작업 자료','long',[previous,inputText(f||{}),step?.instruction].filter(Boolean).join('\n\n'));
+ input(form,'제외 사항','text',f?.inputs?.['제외 소재']||'');
+ const format=input(form,'결과물 형식','select','',['','캐러셀','숏폼','블로그','스레드','뉴스형','조사표','실험 기록']);
+ const cta=input(form,'CTA 하나','select','',[['','자동 추천'],'저장','공유','댓글','상품 정보 확인','구매 조건 확인','사용 안 함']);
+ const rules=group(form,'원본 규칙 · 버전 이력');paragraph(rules,'미검증 실험 설계판 · '+master.version);paragraph(rules,master.change_log||'');
+ for(const sid of master.module_ids||[]){const mod=find(sid);if(mod&&!mod.deleted)paragraph(group(rules,mod.title),mod.prompt);else paragraph(rules,'미연결 · '+sid)}
+ function section(key,title,modes){const e=group(form,title);groups[key]={e,modes};return e}
+ const evidence=group(form,'사실·권리·제휴 검수');evidence.open=true;
+ input(evidence,'원문 URL','url');input(evidence,'원문 공개일','date');input(evidence,'사건 발생일','date');
+ for(const k of ['핵심 사실','사진·영상 권리','광고·제휴 고지'])input(evidence,k,'select','미확인',k==='핵심 사실'?['미확인','확인','실패']:['미확인','확인','해당 없음','실패']);
+ input(evidence,'검증 근거·실제 반응·중복 확인','long');
+ const scores=section('scores','소재 경쟁력 · 40점','AUTO SCAN DEEP');const scoreFields=vDims.map(k=>{const row=group(scores,k);return [input(row,k+' 점수','select','',[['','미확인'],...Array.from({length:6},(_,i)=>String(i))]),input(row,k+' 근거 URL','url'),input(row,k+' 판단 이유')]});
+ const scoreView=document.createElement('output');scores.append(scoreView);
+ function scored(){return scoreFields.map(([v])=>v.value===''?null:Number(v.value))}
+ function displayScore(){const {low,high,decision}=vRange(scored());scoreView.textContent=low+'~'+high+' / 40 · '+decision+' · 편집 판단용'}
+ scores.oninput=displayScore;displayScore();
+ const design=section('design','독자 동기·패턴·시각 설계','AUTO QUICK DEEP COMMERCE COMPARE');
+ const mainM=pick(design,'메인 동기',vM),subM=pick(design,'보조 동기',vM,true),patterns=vH.filter(([k])=>!['H08','H09'].includes(k)),mainH=pick(design,'메인 패턴',patterns),subH=pick(design,'보조 패턴',patterns,true),visual=pick(design,'시각 설계',vV);
+ input(design,'H08 · 시리즈 예고','checkbox');input(design,'H09 · 시각 밀도 실험','checkbox');
+ const comm=section('commerce','수익화·CTA','AUTO DEEP COMMERCE');const commerce=pick(comm,'수익화 적합성',vC);input(comm,'목적지 URL','url');input(comm,'상품 관계','select','미확인',['미확인','동일품','유사품','해당 없음']);input(comm,'가격 확인일','date');input(comm,'구매·행사 조건');
+ const compare=section('compare','비교안 B · 첫 번째 안과 독립 지정','COMPARE');const goalB=pick(compare,'B 목표',vGoals),roleB=pick(compare,'B 역할',vRoles),patB=pick(compare,'B 메인 패턴',patterns);
+ const audit=section('audit','검수할 콘텐츠','AUDIT');input(audit,'검수 원고·링크','long');
+ const links=section('links','문체·제작 스킬 연결','AUTO QUICK DEEP COMMERCE COMPARE');
+ const writing=input(links,'문체 적용','select','워크플로우 설정',['워크플로우 설정','기존 문체·화자','친근한 생활정보 큐레이터형']);
+ const expected=['PIQLE EDITOR','REAL LIFE SNAP','PIQLE FASHION EDIT','CLIP COMMERCE','WADA COLOR ARCHIVE','PIQLE 42/30/1.5','COQIE 업로드 패키지','STYLE DNA'];
+ const connected=expected.map(name=>{const found=matchStep({skill:'',match:name}),el=input(links,name,'select','',[['','자동 추천'+(found?'':' · 미연결')],['-','제외'],...activeSkills().filter(s=>!s.id.startsWith(vccId)).map(s=>[s.id,s.title+' · '+s.id])]);return {name,found,el}});
+ const learning=section('learn','성과·실험 기록','LEARN');for(const k of ['콘텐츠 ID','실험 ID','변형안','비교 조건·유료 집행','지표 정의','상태 근거','다음 실험'])input(learning,k);
+ input(learning,'노출 수','number').min=0;input(learning,'유료 집행','select','미확인',['미확인','유기적 노출','유료 집행','혼합']);input(learning,'게시일','date');input(learning,'관찰일','date');input(learning,'관찰 구간','select','24시간',['24시간','3일','7일','28일']);input(learning,'실험 상태','select','HYPOTHESIS',vStates);
+ for(const k of ['분자','분모']){const n=input(learning,k,'number');n.min=0;n.step='1'}
+ const prior=records().filter(r=>r.vcc?.mode==='LEARN');const history=field(learning,'이전 실험 기록','select','',[['','새 관찰'],...prior.map(r=>[r.id,r.vcc.topic+' · '+r.date])]);
+ function val(k){return ui.get(k)?.value||''}
+ function read(){
+  if(!form.reportValidity()||!subject.value.trim())throw Error('소재와 입력 형식을 확인하세요.');
+  const topic=subject.value.trim(),deal=/할인|가격|구매/.test(topic),fashion=/패션|운동화|코디/.test(topic);
+  const g=goal.value||(deal?'상품 탐색':'저장'),r=role.value||(deal?'비교':fashion?'큐레이션':'정보');
+  const defaultH={발견:'H01',정보:'H04',비교:'H07',경험:'H06',실용:'H04',공감:'H03',해석:'H02',큐레이션:'H06'};
+  const dest=val('목적지 URL'),warnings=[];
+  if(!val('사건 발생일'))warnings.push('사건 발생일 확인 필요');
+  if(!val('원문 URL')||!val('원문 공개일')||!val('검증 근거·실제 반응·중복 확인').trim())warnings.push('원문·공개일·검증 근거 확인 필요');
+  for(const k of ['핵심 사실','사진·영상 권리','광고·제휴 고지'])if(!['확인','해당 없음'].includes(val(k)))warnings.push(k+' · '+val(k));
+  const data={mode:mode.value,topic,platform:channel.value.trim()||'네이버 클립',brand:brand.value==='-'?null:brand.value||brands().find(b=>b.name==='PIQLE')?.id||null,goal:g,role:r,metric:vMetric[vGoals.indexOf(g)],fields:Object.fromEntries([...ui].filter(([,el])=>!el.disabled).map(([k,el])=>[k,el.type==='checkbox'?el.checked:el.value||null])),recommendations:[],warnings};
+  data.format=format.value||({SCAN:'조사표',AUDIT:'검수표',LEARN:'실험 기록'}[data.mode]||(/블로그/.test(data.platform)?'블로그':/숏폼|쇼츠|릴스/.test(data.platform)?'숏폼':'캐러셀'));
+  data.audience=audience.value.trim()||'해당 소재로 선택을 앞둔 독자';
+  data.cta=cta.value||(g==='구매'?'구매 조건 확인':g==='상품 탐색'?'상품 정보 확인':g==='댓글'?'댓글':g==='공유'?'공유':'저장');
+  function reason(label,user,value,why){data.recommendations.push(label+' · '+(user?'직접 선택':'자동 추천 ('+why+')')+' · '+value)}
+  reason('브랜드',brand.value,data.brand||'미적용','PIQLE 기획 스킬 · 등록 프로필만 적용');reason('대상 독자',audience.value,data.audience,'소재 기반 가설');reason('형식',format.value,data.format,'플랫폼·모드');reason('CTA',cta.value,data.cta,'목표에 맞춘 독자 행동');
+  reason('목표',goal.value,g,deal?'가격·구매 단서':'재사용할 정보');reason('역할',role.value,r,deal?'가격 비교':fashion?'패션 추천':'정보 전달');reason('플랫폼',channel.value,data.platform,'기본 발행 채널');
+  if(!groups.scores.e.hidden){data.scores=scoreFields.map(([v,u,n],i)=>{if(v.value!==''&&(!u.value||!n.value.trim()))throw Error(vDims[i]+' 점수에 근거 URL과 이유를 입력하세요.');return {name:vDims[i],value:v.value===''?null:+v.value,url:u.value||null,note:n.value||null}});data.range=vRange(scored())}
+  if(!groups.design.e.hidden){data.motivation=mainM.value||(deal?'M02':'M04');data.pattern=mainH.value||defaultH[r];data.visual=visual.value||(r==='비교'?'V05':'V06');
+   if(data.motivation===subM.value||data.pattern===subH.value)throw Error('메인과 보조가 같습니다. 다른 항목을 선택하세요.');
+   reason('동기',mainM.value,data.motivation,'경제적 이득 또는 탐색 시간');reason('패턴',mainH.value,data.pattern,'역할별 기본 패턴 · 근거 검토 필요');reason('시각',visual.value,data.visual,'비교 또는 근거 제시')}
+  if(!groups.commerce.e.hidden){data.commerce=commerce.value||(deal?'C3':'C0');reason('수익화',commerce.value,data.commerce,'소재 단서 기반 가설');if(data.commerce==='C0'&&['구매 조건 확인','상품 정보 확인'].includes(data.cta)){if(cta.value)throw Error('C0와 상품 CTA가 충돌합니다. CTA 또는 수익화 등급을 변경하세요.');data.cta='저장';data.recommendations.push('C0 우선 · CTA 저장으로 조정')}if(dest&&data.commerce==='C0')throw Error('C0는 링크를 제외합니다. 목적지 URL 또는 등급을 변경하세요.');if(dest&&(val('상품 관계')==='미확인'||!val('가격 확인일')))warnings.push('상품 관계·가격 확인 시점 검토')}
+  if(mode.value==='COMPARE'){data.variantB={goal:goalB.value||(g==='공유'?'저장':'공유'),role:roleB.value||(r==='비교'?'정보':'비교'),pattern:patB.value||(data.pattern==='H12'?'H04':'H12')};if(data.variantB.goal===g&&data.variantB.pattern===data.pattern)throw Error('비교안 B의 목표 또는 패턴을 바꿔주세요.')}
+  if(mode.value==='AUDIT'&&!val('검수 원고·링크').trim()&&!context.value.trim())throw Error('검수 원고 또는 이전 결과를 입력하세요.');
+  if(!groups.links.e.hidden){data.skills=[];for(const {name,found,el} of connected){const s=el.value?find(el.value):found;const autoRelevant=/EDITOR|STYLE DNA/.test(name)||fashion&&name.includes('FASHION')||deal&&name.includes('COMMERCE')||data.visual==='V04'&&name==='REAL LIFE SNAP';
+   if(el.value==='-'||!s||s.deleted||!el.value&&!autoRelevant)continue;if(!data.skills.some(x=>x.id===s.id))data.skills.push({id:s.id,title:s.title,version:s.version||null,prompt:s.prompt});reason('스킬 '+name,el.value,s.id,'소재·표현 설정 일치')}
+   const base=f||{name:topic,steps:[]},prefs=writing.value==='워크플로우 설정'?base.writingPrefs:{mode:writing.value==='기존 문체·화자'?'기존 설정':'FRIENDLY_CURATOR_V1'};
+   data.writing=writingDecision({...base,writingPrefs:prefs},step);
+   if(data.commerce==='C0'&&data.writing.overrides['수익 링크']==='제공한 링크만 상황에 맞게 배치')throw Error('문체 설정의 수익 링크 배치와 C0가 충돌합니다. 문체 설정 또는 등급을 변경하세요.') }
+  if(mode.value==='LEARN'){const state=val('실험 상태'),den=val('분모'),num=val('분자');if(den!==''&&+den<=0)throw Error('분모는 양수이거나 미확인이어야 합니다.');if(num!==''&&den!==''&&+num>+den)throw Error('비율 지표의 분자는 분모 이하여야 합니다.');if(val('게시일')&&val('관찰일')&&val('관찰일')<val('게시일'))throw Error('관찰일을 확인하세요.');if(state!=='HYPOTHESIS'&&(!val('상태 근거').trim()||!val('관찰일')))throw Error('실험 상태에는 근거와 관찰일이 필요합니다.');
+   const old=records().find(r=>r.id===history.value);if(old&&old.vcc.fields['실험 ID']&&old.vcc.fields['실험 ID']!==val('실험 ID'))throw Error('연결한 기록과 실험 ID가 다릅니다.');if(old&&old.vcc.learning.status!==state&&(!val('관찰일')||!val('상태 근거').trim()))throw Error('상태 변경 근거와 날짜가 필요합니다.');
+   data.learning={previous:old?.id||null,status:state,numerator:num===''?null:+num,denominator:den===''?null:+den,value:num!==''&&den!==''?+num/+den:null}}
+  return data
+ }
+ function changeMode(){for(const {e,modes} of Object.values(groups)){e.hidden=!modes.split(' ').includes(mode.value);for(const el of e.querySelectorAll('input,select,textarea'))el.disabled=e.hidden}}
+ mode.onchange=changeMode;changeMode();
+ const out=field(d,'완성 프롬프트','long');out.readOnly=true;const status=document.createElement('p');status.setAttribute('role','status');d.append(status);
+ function invalidate(){out.value='';snapshot=null;status.textContent=''}form.addEventListener('input',invalidate);form.addEventListener('change',invalidate);
+ button(d,'마스터 프롬프트 생성',()=>{try{snapshot=read();const modules=(master.module_ids||[]).map(find);if(modules.length!==7||modules.some(m=>!m||m.deleted))throw Error('모듈 7개의 등록·휴지통 상태를 확인하세요.');
+ const scope={AUTO:'A~E 전체 제작',SCAN:'후보 수집·평가·우선순위만',QUICK:'핵심 5줄 카드·제목·원고만. 검증 유지',DEEP:'전체 분석·시각·스킬 조합',COMMERCE:'구매 판단·조건·CTA 하나',COMPARE:'서로 다른 두 안과 단일 변수 비교',AUDIT:'기존 콘텐츠·검수·게시 차단 사유만',LEARN:'지표·관찰·반례와 다음 실험만'}[snapshot.mode];
+ out.value=[master.master_template,master.prompt.split('## 10. 모듈 전체 규칙')[0],...modules.map(m=>m.prompt),'[이번 실행 범위] '+scope+' · 다른 모드 산출물은 생략한다. 사용자 지정 우선. 사실·권리·광고 검수 우선. 규칙이 충돌하면 구체적인 충돌과 처리 이유를 기록한다.',step?.instruction,'[선택·근거·게시 차단 사유]',JSON.stringify(snapshot,(k,v)=>['prompt','writing'].includes(k)?undefined:v,2),brandText(snapshot.brand),writingBlock(snapshot.writing),...(snapshot.skills||[]).map(s=>'['+s.id+' · '+s.title+']\n'+s.prompt)].filter(Boolean).join('\n\n');status.textContent=snapshot.warnings.length?'게시 보류 · '+snapshot.warnings.join(' / '):'검수 항목 확인됨'
+ }catch(e){invalidate();status.textContent=e.message}});
+ button(d,'완성 프롬프트 복사',()=>{if(out.value)copy(out.value)});
+ const result=field(d,'실행 결과·실험 메모','long');
+ button(d,'실행 기록 저장',()=>{if(!snapshot||!out.value)return status.textContent='먼저 프롬프트를 생성하세요.';const rec={id:crypto.randomUUID(),date:now(),skill:vccId,original:master.prompt,values:snapshot.fields,prompt:out.value,result:result.value,vcc:snapshot,brand:snapshot.brand};if(snapshot.writing)rec.writing=snapshot.writing;(db.runs??=[]).push(rec);if(step)step.run=rec.id;if(persist()){dialog.close();render()}})
+}
+views.set('맥락 카드',m=>{const p=panel(m,'VIRAL CONTEXT CARD v3.1');paragraph(p,'미검증 실험 설계 · 독자 동기, 표현 패턴, 편집 판단과 실제 성과를 기록합니다.');
+ if(find(vccId)&&!find(vccId).deleted)button(p,'새 맥락 카드',()=>vStudio());else button(p,'패키지 가져오기',()=>go('Vault'));
+ for(const r of [...records()].reverse().filter(r=>r.vcc)){button(p,r.vcc.topic+' · '+r.vcc.mode+' · '+r.date,()=>showRecord(r))}});
+function vSummary(parent,rec){
+ const v=rec.vcc;if(!v)return;
+ const p=group(parent,'실험 설계·검수 기록');p.open=true;
+ paragraph(p,[v.topic,v.mode,v.goal,v.metric].filter(Boolean).join(' · '));
+ if(v.range)paragraph(p,v.range.low+'~'+v.range.high+' / 40 · '+v.range.decision);
+ if(v.learning)paragraph(p,[v.learning.status,v.fields['관찰 구간'],v.learning.value==null?'지표 미확인':(v.learning.value*100).toFixed(1)+'%',v.fields['상태 근거']].filter(Boolean).join(' · '));
+ for(const w of v.warnings)paragraph(p,'게시 보류 · '+w);
+ const log=group(p,'선택·추천 이유');for(const reason of v.recommendations||[])paragraph(log,reason)
+}
 
 render();</script><script>
 const showSavedRecord = showRecord;
